@@ -1,0 +1,88 @@
+#!/bin/bash
+
+# Define common topics and their associated commands
+declare -A topics=(
+    ["git"]="Git Commands: \n
+    - git init: Initialize a repository\n
+    - git clone <repo>: Clone a repository\n
+    - git status: Show repo status\n
+    - git branch: List branches\n
+    - git checkout <branch>: Switch branch\n
+    - git merge <branch>: Merge branch\n
+    - git pull: Pull latest changes\n
+    - git push: Push commits\n
+    - git commit -m \"message\": Commit changes\n
+    - git log: Show commit history"
+    
+    ["bash"]="Bash Commands: \n
+    - ls: List files\n
+    - cd <dir>: Change directory\n
+    - mv <src> <dest>: Move/Rename file\n
+    - cp <src> <dest>: Copy file\n
+    - rm <file>: Remove file\n
+    - grep <pattern> <file>: Search for pattern\n
+    - chmod <mode> <file>: Change file permissions\n
+    - find <dir> -name <pattern>: Find files\n
+    - history: Show command history"
+
+    ["python"]="Python Commands: \n
+    - python3: Start Python interpreter\n
+    - pip install <package>: Install package\n
+    - python3 -m venv <env>: Create virtual environment\n
+    - python3 script.py: Run script\n
+    - import <module>: Import a module\n
+    - print(<text>): Print output\n
+    - def <func>(): Define function"
+)
+
+# Define detailed lookup for specific commands
+declare -A details=(
+    ["bash grep"]="Grep Command:\n
+    - grep 'pattern' file.txt: Search for 'pattern' in file.txt\n
+    - grep -i 'pattern' file.txt: Case-insensitive search\n
+    - grep -r 'pattern' dir/: Search recursively in directory\n
+    - grep -v 'pattern' file.txt: Invert match (exclude lines)\n
+    - grep -E 'pattern1|pattern2' file.txt: Match multiple patterns\n
+    - grep -o 'pattern' file.txt: Show only matching parts\n
+    - grep -n 'pattern' file.txt: Show line numbers"
+    
+    ["git branch"]="Git Branch Commands:\n
+    - git branch: List branches\n
+    - git branch <name>: Create new branch\n
+    - git checkout <branch>: Switch branch\n
+    - git merge <branch>: Merge branch into current\n
+    - git branch -d <branch>: Delete branch\n
+    - git branch -m <old> <new>: Rename branch"
+)
+
+# Function to display topics if no arguments are provided
+function show_topics {
+    echo "What topic do you need help with? (e.g., git, bash, python)"
+    read topic
+    if [[ -n "${topics[$topic]}" ]]; then
+        echo -e "${topics[$topic]}"
+    else
+        echo "Unknown topic: $topic"
+    fi
+}
+
+# Handle command-line arguments
+if [[ $# -eq 0 ]]; then
+    show_topics
+elif [[ $# -eq 1 ]]; then
+    topic=$1
+    if [[ -n "${topics[$topic]}" ]]; then
+        echo -e "${topics[$topic]}"
+    else
+        echo "Unknown topic: $topic"
+    fi
+elif [[ $# -eq 2 ]]; then
+    key="$1 $2"
+    if [[ -n "${details[$key]}" ]]; then
+        echo -e "${details[$key]}"
+    else
+        echo "No details found for '$2' in '$1'"
+    fi
+else
+    echo "Usage: forgot [topic] [command]"
+fi
