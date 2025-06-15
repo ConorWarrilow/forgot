@@ -218,14 +218,13 @@ strip_commands_suffix() {
 }
 
 # Create a new command
-create_command() {
+create_command_old() {
   local path="$1"
   local is_nested="$2"
   local current_path=""
   
   # Use current path if exists, otherwise empty
   if [ -n "$path" ]; then
-    echo "CURRENT PATH: $path" >> current_path.txt
     current_path=".$path"
   fi
   
@@ -309,8 +308,113 @@ create_command() {
   tput civis  # Hide cursor again
 }
 
+# Create a new command
+create_command() {
+  local path="$1"
+  local is_nested="$2"
+  local current_path=""
+
+  # Use current path if exists, otherwise empty
+  if [ -n "$path" ]; then
+    current_path=".$path"
+  fi
+
+  # Show cursor during input
+  tput cnorm
+
+  clear
+  echo -e "${CYAN}=== Create New Command ===${RESET}"
+
+  # Get command path
+  if [ -z "$path" ]; then
+    echo -n "Topic name: "
+    read topic_name
+
+    # Check if topic already exists
+    if jq -e ".$topic_name" "$DATA_FILE" > /dev/null 2>&1; then
+      echo -n "Topic already exists. Create a command under this topic? (y/n): "
+      read create_under
+      if [ "$create_under" == "y" ]; then
+        echo -n "Command name: "
+        read command_name
+        current_path=".$topic_name.commands.$command_name"
+      else
+        echo -e "${YELLOW}Operation cancelled.${RESET}"
+        sleep 1
+        tput civis  # Hide cursor again
+        return
+      fi
+    else
+      # Create new topic
+      echo -n "Topic description: "
+      read topic_description
+
+      # Update the JSON file
+      local temp_file
+      temp_file=$(mktemp)
+      jq ".$topic_name = {\"description\": \"$topic_description\", \"commands\": {}}" "$DATA_FILE" > "$temp_file"
+      mv "$temp_file" "$DATA_FILE"
+
+      echo -e "${GREEN}New topic '$topic_name' created!${RESET}"
+      sleep 1
+      tput civis  # Hide cursor again
+      return
+    fi
+  else
+    # Adding a command to an existing path
+    echo -n "Command name: "
+    read command_name
+    current_path="$current_path.$command_name"
+  fi
+
+  # Ask if this is a nested command with subcommands
+  if [ "$is_nested" != "true" ]; then
+    echo -n "Is this a nested command with subcommands? (y/n): "
+    read is_nested_response
+    if [ "$is_nested_response" == "y" ]; then
+      echo -n "Description for nested command: "
+      read command_description
+
+      # Create nested command structure
+      local temp_file
+      temp_file=$(mktemp)
+      jq "$current_path = {\"description\": \"$command_description\", \"commands\": {}}" "$DATA_FILE" > "$temp_file"
+      mv "$temp_file" "$DATA_FILE"
+
+      echo -e "${GREEN}New nested command created at $(internal_to_user_path "${current_path:1}")!${RESET}"
+    else
+      echo -n "Command description: "
+      read command_description
+
+      # Create simple command
+      local temp_file
+      temp_file=$(mktemp)
+      jq "$current_path = \"$command_description\"" "$DATA_FILE" > "$temp_file"
+      mv "$temp_file" "$DATA_FILE"
+
+      echo -e "${GREEN}New command created at $(internal_to_user_path "${current_path:1}")!${RESET}"
+    fi
+  else
+    # Adding a subcommand to an existing nested command
+    echo -n "Subcommand description: "
+    read subcommand_description
+
+    # Create the subcommand
+    local temp_file
+    temp_file=$(mktemp)
+    jq "$current_path = \"$subcommand_description\"" "$DATA_FILE" > "$temp_file"
+    mv "$temp_file" "$DATA_FILE"
+
+    echo -e "${GREEN}New subcommand created at $(internal_to_user_path "${current_path:1}")!${RESET}"
+  fi
+
+  sleep 1
+  tput civis  # Hide cursor again
+}
+
+
 # Delete a command
-delete_command() {
+delete_command_old() {
   local path="$1"
   
   if [ -z "$path" ]; then
@@ -340,8 +444,44 @@ delete_command() {
   tput civis  # Hide cursor again
 }
 
+delete_command() {
+  local path="$1"
+
+  if [ -z "$path" ]; then
+    echo -e "${RED}Error: No path specified for deletion${RESET}"
+    return
+  fi
+
+  tput cnorm  # Ensure cursor is visible
+  clear
+
+  echo -e "${CYAN}=== Delete Command ===${RESET}"
+  echo -e "You are about to delete: ${YELLOW}$(internal_to_user_path "$path")${RESET}"
+  
+  # Flush output to terminal before asking for input
+  echo -n "Are you sure? (y/n): "
+  read confirm
+
+  if [ "$confirm" == "y" ]; then
+    local temp_file
+    temp_file=$(mktemp)
+    jq "del(.$path)" "$DATA_FILE" > "$temp_file"
+    mv "$temp_file" "$DATA_FILE"
+    
+    echo -e "${GREEN}Command at $(internal_to_user_path "$path") deleted successfully!${RESET}"
+  else
+    echo -e "${YELLOW}Deletion cancelled.${RESET}"
+  fi
+
+  sleep 1
+  tput civis  # Hide cursor again
+}
+
+
+
+
 # Update a command
-update_command() {
+update_command_old() {
   local path="$1"
   
   if [ -z "$path" ]; then
@@ -386,6 +526,62 @@ update_command() {
   sleep 1
   tput civis  # Hide cursor again
 }
+
+
+update_command() {
+  local path="$1"
+
+  if [ -z "$path" ]; then
+    echo -e "${RED}Error: No path specified for update${RESET}"
+    return
+  fi
+
+  # Show cursor during input
+  tput cnorm
+
+  clear
+  echo -e "${CYAN}=== Update Command ===${RESET}"
+  echo -e "Updating: ${YELLOW}$(internal_to_user_path "$path")${RESET}"
+
+  # Check if it's a nested command or a simple command
+  if jq -e ".$path.description" "$DATA_FILE" > /dev/null 2>&1; then
+    # It's a nested command
+    local current_description
+    current_description=$(jq -r ".$path.description" "$DATA_FILE")
+    echo -e "Current description: ${CYAN}$current_description${RESET}"
+    
+    echo -n "New description (leave empty to keep current): "
+    read new_description
+
+    if [ -n "$new_description" ]; then
+      local temp_file
+      temp_file=$(mktemp)
+      jq ".$path.description = \"$new_description\"" "$DATA_FILE" > "$temp_file"
+      mv "$temp_file" "$DATA_FILE"
+      echo -e "${GREEN}Description updated successfully!${RESET}"
+    fi
+  else
+    # It's a simple command
+    local current_value
+    current_value=$(jq -r ".$path" "$DATA_FILE")
+    echo -e "Current value: ${CYAN}$current_value${RESET}"
+    
+    echo -n "New value (leave empty to keep current): "
+    read new_value
+
+    if [ -n "$new_value" ]; then
+      local temp_file
+      temp_file=$(mktemp)
+      jq ".$path = \"$new_value\"" "$DATA_FILE" > "$temp_file"
+      mv "$temp_file" "$DATA_FILE"
+      echo -e "${GREEN}Command updated successfully!${RESET}"
+    fi
+  fi
+
+  sleep 1
+  tput civis  # Hide cursor again
+}
+
 
 # Display a specific command or topic directly
 show_direct_path() {

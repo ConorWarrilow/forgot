@@ -1,0 +1,36 @@
+Key pressed: []
+Key pressed: []
+Key pressed: []
+Key pressed: [d]
+Key pressed: [d]
+Key pressed: []
+Key pressed: []
+ASCII: 0
+ASCII: 0
+ASCII: 0
+ASCII: 100
+ASCII: 100
+ASCII: 100
+ASCII: 0
+ASCII: 0
+ASCII: 0
+ASCII: 0
+ASCII: 0
+ASCII: 0
+ASCII: 0
+ASCII: 0
+ASCII: 0
+ASCII: 0
+ASCII: 0
+ASCII: 0
+ASCII: 4
+ASCII: 119
+ASCII: 106
+ASCII: 121
+ASCII: 106
+ASCII: 108
+ASCII: 108
+ASCII: 104
+ASCII: 106
+ASCII: 107
+ASCII: 107

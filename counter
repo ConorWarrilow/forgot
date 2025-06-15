@@ -1,0 +1,80 @@
+#!/bin/bash
+
+# Hide cursor
+printf "\033[?25l"
+
+# Trap exit and cleanup
+trap cleanup EXIT
+
+cleanup() {
+    printf "\033[?25h"  # Show cursor
+    stty echo           # Re-enable echo if disabled
+    printf "\033[0m"    # Reset any text formatting
+    printf "\033[?7h"   # Restore line wrap
+    printf "\033[H\033[J"
+}
+
+# Menu options
+options=("Option 1" "Option 2" "Option 3" "Option 4")
+selected=0
+num_options=${#options[@]}
+menu_top_row=3  # Row where the menu starts
+
+draw_menu() {
+    printf "\033[H"  # Go to top-left
+    echo "Use j/k to move, Enter to select:"
+    
+    for i in "${!options[@]}"; do
+        draw_option "$i"
+    done
+}
+
+draw_option() {
+    local index=$1
+    local row=$((menu_top_row + index))
+    local line=""
+    if [ "$index" -eq "$selected" ]; then
+        line="\033[7m> ${options[$index]}\033[0m"
+    else
+        line="  ${options[$index]}"
+    fi
+    printf "\033[${row};1H\033[2K${line}"
+}
+
+move_selection() {
+    local old_index=$selected
+    selected=$1
+    draw_option "$old_index"  # Redraw old selection normally
+    draw_option "$selected"   # Redraw new selection highlighted
+}
+
+interactive_loop() {
+    while true; do
+        read -rsn1 key
+
+        case "$key" in
+            j)
+                if [ "$selected" -lt $((num_options - 1)) ]; then
+                    move_selection $((selected + 1))
+                fi
+                ;;
+            k)
+                if [ "$selected" -gt 0 ]; then
+                    move_selection $((selected - 1))
+                fi
+                ;;
+            "")  # Enter key
+                break
+                ;;
+        esac
+    done
+}
+
+# Run it
+clear
+draw_menu
+interactive_loop
+
+# Done
+cleanup
+echo "You selected: ${options[$selected]}"

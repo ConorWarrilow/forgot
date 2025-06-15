@@ -180,8 +180,8 @@ export_commands() {
   echo -e "${GREEN}Commands exported to $file successfully!${RESET}"
 }
 
-# Convert user path to internal path (handles missing 'commands' keyword)
-convert_path() {
+# Convert user path to internal path (adds missing 'commands' keyword)
+user_to_internal_path() {
   local user_path="$1"
   local parts
   local result=""
@@ -222,28 +222,30 @@ create_command() {
   local path="$1"
   local is_nested="$2"
   local current_path=""
-  
+
   # Use current path if exists, otherwise empty
   if [ -n "$path" ]; then
-    echo "CURRENT PATH: $path" >> current_path.txt
     current_path=".$path"
   fi
-  
+
   # Show cursor during input
   tput cnorm
-  
+
   clear
   echo -e "${CYAN}=== Create New Command ===${RESET}"
-  
+
   # Get command path
   if [ -z "$path" ]; then
-    read -p "Topic name: " topic_name
-    
+    echo -n "Topic name: "
+    read topic_name
+
     # Check if topic already exists
     if jq -e ".$topic_name" "$DATA_FILE" > /dev/null 2>&1; then
-      read -p "Topic already exists. Create a command under this topic? (y/n): " create_under
+      echo -n "Topic already exists. Create a command under this topic? (y/n): "
+      read create_under
       if [ "$create_under" == "y" ]; then
-        read -p "Command name: " command_name
+        echo -n "Command name: "
+        read command_name
         current_path=".$topic_name.commands.$command_name"
       else
         echo -e "${YELLOW}Operation cancelled.${RESET}"
@@ -253,13 +255,15 @@ create_command() {
       fi
     else
       # Create new topic
-      read -p "Topic description: " topic_description
-      
+      echo -n "Topic description: "
+      read topic_description
+
       # Update the JSON file
-      local temp_file=$(mktemp)
+      local temp_file
+      temp_file=$(mktemp)
       jq ".$topic_name = {\"description\": \"$topic_description\", \"commands\": {}}" "$DATA_FILE" > "$temp_file"
       mv "$temp_file" "$DATA_FILE"
-      
+
       echo -e "${GREEN}New topic '$topic_name' created!${RESET}"
       sleep 1
       tput civis  # Hide cursor again
@@ -267,67 +271,78 @@ create_command() {
     fi
   else
     # Adding a command to an existing path
-    read -p "Command name: " command_name
+    echo -n "Command name: "
+    read command_name
     current_path="$current_path.$command_name"
   fi
-  
+
   # Ask if this is a nested command with subcommands
   if [ "$is_nested" != "true" ]; then
-    read -p "Is this a nested command with subcommands? (y/n): " is_nested_response
+    echo -n "Is this a nested command with subcommands? (y/n): "
+    read is_nested_response
     if [ "$is_nested_response" == "y" ]; then
-      read -p "Description for nested command: " command_description
-      
+      echo -n "Description for nested command: "
+      read command_description
+
       # Create nested command structure
-      local temp_file=$(mktemp)
+      local temp_file
+      temp_file=$(mktemp)
       jq "$current_path = {\"description\": \"$command_description\", \"commands\": {}}" "$DATA_FILE" > "$temp_file"
       mv "$temp_file" "$DATA_FILE"
-      
+
       echo -e "${GREEN}New nested command created at $(internal_to_user_path "${current_path:1}")!${RESET}"
     else
-      read -p "Command description: " command_description
-      
+      echo -n "Command description: "
+      read command_description
+
       # Create simple command
-      local temp_file=$(mktemp)
+      local temp_file
+      temp_file=$(mktemp)
       jq "$current_path = \"$command_description\"" "$DATA_FILE" > "$temp_file"
       mv "$temp_file" "$DATA_FILE"
-      
+
       echo -e "${GREEN}New command created at $(internal_to_user_path "${current_path:1}")!${RESET}"
     fi
   else
     # Adding a subcommand to an existing nested command
-    read -p "Subcommand description: " subcommand_description
-    
+    echo -n "Subcommand description: "
+    read subcommand_description
+
     # Create the subcommand
-    local temp_file=$(mktemp)
+    local temp_file
+    temp_file=$(mktemp)
     jq "$current_path = \"$subcommand_description\"" "$DATA_FILE" > "$temp_file"
     mv "$temp_file" "$DATA_FILE"
-    
+
     echo -e "${GREEN}New subcommand created at $(internal_to_user_path "${current_path:1}")!${RESET}"
   fi
-  
+
   sleep 1
   tput civis  # Hide cursor again
 }
 
-# Delete a command
+
 delete_command() {
   local path="$1"
-  
+
   if [ -z "$path" ]; then
     echo -e "${RED}Error: No path specified for deletion${RESET}"
     return
   fi
-  
-  # Show cursor during input
-  tput cnorm
-  
+
+  tput cnorm  # Ensure cursor is visible
   clear
+
   echo -e "${CYAN}=== Delete Command ===${RESET}"
   echo -e "You are about to delete: ${YELLOW}$(internal_to_user_path "$path")${RESET}"
-  read -p "Are you sure? (y/n): " confirm
   
+  # Flush output to terminal before asking for input
+  echo -n "Are you sure? (y/n): "
+  read confirm
+
   if [ "$confirm" == "y" ]; then
-    local temp_file=$(mktemp)
+    local temp_file
+    temp_file=$(mktemp)
     jq "del(.$path)" "$DATA_FILE" > "$temp_file"
     mv "$temp_file" "$DATA_FILE"
     
@@ -335,54 +350,61 @@ delete_command() {
   else
     echo -e "${YELLOW}Deletion cancelled.${RESET}"
   fi
-  
+
   sleep 1
   tput civis  # Hide cursor again
 }
 
-# Update a command
 update_command() {
   local path="$1"
-  
+
   if [ -z "$path" ]; then
     echo -e "${RED}Error: No path specified for update${RESET}"
     return
   fi
-  
+
   # Show cursor during input
   tput cnorm
-  
+
   clear
   echo -e "${CYAN}=== Update Command ===${RESET}"
   echo -e "Updating: ${YELLOW}$(internal_to_user_path "$path")${RESET}"
-  
+
   # Check if it's a nested command or a simple command
   if jq -e ".$path.description" "$DATA_FILE" > /dev/null 2>&1; then
     # It's a nested command
+    local current_description
     current_description=$(jq -r ".$path.description" "$DATA_FILE")
     echo -e "Current description: ${CYAN}$current_description${RESET}"
-    read -p "New description (leave empty to keep current): " new_description
     
+    echo -n "New description (leave empty to keep current): "
+    read new_description
+
     if [ -n "$new_description" ]; then
-      local temp_file=$(mktemp)
+      local temp_file
+      temp_file=$(mktemp)
       jq ".$path.description = \"$new_description\"" "$DATA_FILE" > "$temp_file"
       mv "$temp_file" "$DATA_FILE"
       echo -e "${GREEN}Description updated successfully!${RESET}"
     fi
   else
     # It's a simple command
+    local current_value
     current_value=$(jq -r ".$path" "$DATA_FILE")
     echo -e "Current value: ${CYAN}$current_value${RESET}"
-    read -p "New value (leave empty to keep current): " new_value
     
+    echo -n "New value (leave empty to keep current): "
+    read new_value
+
     if [ -n "$new_value" ]; then
-      local temp_file=$(mktemp)
+      local temp_file
+      temp_file=$(mktemp)
       jq ".$path = \"$new_value\"" "$DATA_FILE" > "$temp_file"
       mv "$temp_file" "$DATA_FILE"
       echo -e "${GREEN}Command updated successfully!${RESET}"
     fi
   fi
-  
+
   sleep 1
   tput civis  # Hide cursor again
 }
@@ -390,7 +412,7 @@ update_command() {
 # Display a specific command or topic directly
 show_direct_path() {
   local user_path="$1"
-  local path=$(convert_path "$user_path")
+  local path=$(user_to_internal_path "$user_path")
   local parts
   IFS='.' read -ra parts <<< "$user_path"
   
@@ -434,26 +456,43 @@ show_direct_path() {
   fi
 }
 
-# Function to redraw the screen without flashing
-redraw_screen() {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Function to initialize screen and draw static elements
+initialize_screen() {
   local current_path="$1"
-  local selected_index="$2"
-  local items=("${!3}")
-  local descriptions=("${!4}")
-  local is_nested=("${!5}")
-  local expanded=("${!6}")
-  
-  # Clear screen but preserve content
   tput clear
   
-  # Display path
   if [ -z "$current_path" ]; then
     echo -e "${BOLD}${CYAN}FORGOT - Main Menu${RESET}\n"
   else
-    local path_display=$(internal_to_user_path "$current_path" | sed 's/\./  >  /g')
-    echo -e "${BOLD}${CYAN}FORGOT${RESET}${BLUE}  >  $path_display${RESET}\n"
+    local path_display=$(internal_to_user_path "$current_path" | sed 's/\./ > /g')
+    echo -e "${BOLD}${CYAN}FORGOT${RESET}${BLUE} > $path_display${RESET}\n"
     
-    # Show description if available
+    # Show description if exists
     if jq -e ".$current_path.description" "$DATA_FILE" > /dev/null 2>&1; then
       local desc=$(jq -r ".$current_path.description" "$DATA_FILE")
       echo -e "${CYAN}$desc${RESET}\n"
@@ -463,46 +502,205 @@ redraw_screen() {
   # Display help line
   echo -e "${BOLD}Navigation:${RESET} ${GREEN}j/k${RESET}:up/down ${GREEN}h${RESET}:back ${GREEN}l${RESET}:forward ${GREEN}space${RESET}:expand ${GREEN}q${RESET}:quit ${GREEN}^n${RESET}:new ${GREEN}^d${RESET}:delete ${GREEN}^u${RESET}:update\n"
   
-  # Display menu items
-  for i in "${!items[@]}"; do
-    if [ $i -eq $selected_index ]; then
-      # Selected item
-      if [ "${is_nested[$i]}" == "true" ]; then
-        # Check if expanded
-        if [[ " ${expanded[@]} " =~ " $i " ]]; then
-          echo -e " ${BOLD}${MAGENTA}▼ ${items[$i]}${RESET} - ${descriptions[$i]}"
-          
-          # Show child items
-          local child_path="$current_path.commands.${items[$i]}"
-          if [ -z "$current_path" ]; then
-            child_path="${items[$i]}.commands"
-          fi
-          
-          # Get child items
-          while IFS= read -r child; do
-            # Check if child is nested
-            if jq -e ".$child_path.\"$child\".description" "$DATA_FILE" > /dev/null 2>&1; then
-              local child_desc=$(jq -r ".$child_path.\"$child\".description" "$DATA_FILE")
-              echo -e "   ${CYAN}$child${RESET} - ${child_desc} ${BLUE}[nested]${RESET}"
-            else
-              local child_value=$(jq -r ".$child_path.\"$child\"" "$DATA_FILE")
-              echo -e "   ${CYAN}$child${RESET} - ${child_value}"
-            fi
-          done < <(jq -r ".$child_path | keys[]" "$DATA_FILE")
-        else
-          echo -e " ${YELLOW}▶ ${BOLD}${items[$i]}${RESET} - ${descriptions[$i]}"
-        fi
-      else
-        echo -e " ${YELLOW_BOLD}  ${items[$i]}${RESET} - ${descriptions[$i]}"
-      fi
-    else
-      # Non-selected items
-      if [ "${is_nested[$i]}" == "true" ]; then
-        echo -e " ${BLUE}▶ ${items[$i]}${RESET} - ${descriptions[$i]}"
-      else
-        echo -e "   ${items[$i]} - ${descriptions[$i]}"
-      fi
+  # Calculate where menu items start (for cursor positioning later)
+  MENU_START_LINE=$(tput lines)
+  if [ -z "$current_path" ]; then
+    MENU_START_LINE=4
+  else
+    MENU_START_LINE=6
+    if jq -e ".$current_path.description" "$DATA_FILE" > /dev/null 2>&1; then
+      MENU_START_LINE=7
     fi
+  fi
+}
+
+# Function to draw a single menu item
+draw_menu_item_old() {
+  local index="$1"
+  local selected_index="$2"
+  local items=("${!3}")
+  local descriptions=("${!4}")
+  local is_nested=("${!5}")
+
+  # Position cursor at correct line
+  local line_position=$((MENU_START_LINE + index))
+  tput cup $line_position 0
+  
+  # Clear the line
+  tput el
+  
+  # Currently selected menu item
+  if [ $index -eq $selected_index ]; then
+    # Selected item
+    if [ "${is_nested[$index]}" == "true" ]; then
+      # Check if expanded
+      #if in_array "$index" "${expanded[@]}"; then
+      #  echo -n -e " ${BOLD}${MAGENTA}▼ ${items[$index]}${RESET} - ${descriptions[$index]}"
+      #else
+      echo -n -e " ${YELLOW}▶ ${BOLD}${items[$index]}${RESET} - ${descriptions[$index]}"
+      #fi
+    else
+      echo -n -e " ${YELLOW_BOLD}  ${items[$index]}${RESET} - ${descriptions[$index]}"
+    fi
+  else
+    # Non-selected items
+    if [ "${is_nested[$index]}" == "true" ]; then
+      echo -n -e " ${BLUE}▶ ${items[$index]}${RESET} - ${descriptions[$index]}"
+    else
+      echo -n -e "   ${items[$index]} - ${descriptions[$index]}"
+    fi
+  fi
+}
+
+
+
+
+
+
+
+
+draw_menu_item() {
+  local index="$1"
+  local selected_index="$2"
+  local items=("${!3}")
+  local descriptions=("${!4}")
+  local is_nested=("${!5}")
+
+  # Position cursor at correct line
+  local line_position=$((MENU_START_LINE + index))
+  tput cup $line_position 0
+  
+  # Clear the line
+  tput el
+  
+  # Currently selected menu item
+  if [ $index -eq $selected_index ]; then
+    # Selected item
+    if [ "${is_nested[$index]}" == "true" ]; then
+      # Check if expanded
+      #if in_array "$index" "${expanded[@]}"; then
+      #  echo -n -e " ${BOLD}${MAGENTA}▼ ${items[$index]}${RESET} - ${descriptions[$index]}"
+      #else
+      echo -n -e " ${YELLOW}▶ ${BOLD}${items[$index]}${RESET} - ${descriptions[$index]}"
+      #fi
+    else
+      echo -n -e " ${YELLOW_BOLD}  ${items[$index]}${RESET} - ${descriptions[$index]}"
+    fi
+  else
+    # Non-selected items
+    if [ "${is_nested[$index]}" == "true" ]; then
+      echo -n -e " ${BLUE}▶ ${items[$index]}${RESET} - ${descriptions[$index]}"
+    else
+      echo -n -e "   ${items[$index]} - ${descriptions[$index]}"
+    fi
+  fi
+}
+
+
+
+
+
+
+
+
+
+# Function to check if value is in array
+in_array() {
+  local needle="$1"
+  shift
+  local haystack=("$@")
+  
+  for item in "${haystack[@]}"; do
+    if [[ "$item" == "$needle" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Function to draw expanded items
+draw_expanded_item() {
+  local index="$1"
+  local current_path="$2"
+  local items=("${!3}")
+  
+  # Get the base line where we should start drawing the children
+  local base_line=$((MENU_START_LINE + index + 1))
+  tput cup $base_line 0
+  
+  # Get child path
+  local child_path="$current_path.commands.${items[$index]}"
+  if [ -z "$current_path" ]; then
+    child_path="${items[$index]}.commands"
+  fi
+  
+  local child_index=0
+  # Get child items
+  while IFS= read -r child; do
+    tput cup $((base_line + child_index)) 0
+    tput el
+    # Check if child is nested
+    if jq -e ".$child_path.\"$child\".description" "$DATA_FILE" > /dev/null 2>&1; then
+      local child_desc=$(jq -r ".$child_path.\"$child\".description" "$DATA_FILE")
+      echo -n -e "   ${CYAN}$child${RESET} - ${child_desc} ${BLUE}[nested]${RESET}"
+    else
+      local child_value=$(jq -r ".$child_path.\"$child\"" "$DATA_FILE")
+      echo -n -e "   ${CYAN}$child${RESET} - ${child_value}"
+    fi
+    ((child_index++))
+  done < <(jq -r ".$child_path | keys[]" "$DATA_FILE")
+  
+  # Return number of children drawn
+
+  echo "$child_index"
+
+}
+
+
+#draw_expanded_item() {
+#  local index="$1"
+#  local current_path="$2"
+#  local items=("${!3}")
+#  
+#  # Get the base line where we should start drawing the children
+#  local base_line=$((MENU_START_LINE + index + 1))
+#  tput cup $base_line 0
+#  
+#  # Get child path
+#  local child_path="$current_path.commands.${items[$index]}"
+#  if [ -z "$current_path" ]; then
+#    child_path="${items[$index]}.commands"
+#  fi
+#  
+#  local child_index=0
+#  # Get child items
+#  while IFS= read -r child; do
+#    tput cup $((base_line + child_index)) 0
+#    tput el
+#    # Check if child is nested
+#    if jq -e ".$child_path.\"$child\".description" "$DATA_FILE" > /dev/null 2>&1; then
+#      local child_desc=$(jq -r ".$child_path.\"$child\".description" "$DATA_FILE")
+#      echo -n -e "   ${CYAN}$child${RESET} - ${child_desc} ${BLUE}[nested]${RESET}"
+#    else
+#      local child_value=$(jq -r ".$child_path.\"$child\"" "$DATA_FILE")
+#      echo -n -e "   ${CYAN}$child${RESET} - ${child_value}"
+#    fi
+#    ((child_index++))
+#  done < <(jq -r ".$child_path | keys[]" "$DATA_FILE")
+#  
+#  # Return number of children drawn - ensure this is the only output
+#  echo "$child_index" >&1
+#  return 0
+#}
+
+# Function to clear expanded items
+clear_expanded_area() {
+  local start_line="$1"
+  local num_lines="$2"
+  
+  for ((i=0; i<num_lines; i++)); do
+    tput cup $((start_line + i)) 0
+    tput el
   done
 }
 
@@ -510,13 +708,13 @@ redraw_screen() {
 display_menu() {
   local current_path="$1"
   local selected_index="$2"
-
   local items=()
   local descriptions=()
   local is_nested=()
   local parent_path=""
-  local path_history=() # For tracking path path_history
+  local path_history=() # For tracking path history
   local selected_index_history=()
+  
   # Function to populate menu items
   populate_menu() {
     items=()
@@ -557,44 +755,89 @@ display_menu() {
   
   # Interactive loop
   local running=true
-  local expanded=()
+  #local expanded=()
+  #local expanded_counts=() # Store number of children for each expanded item
+  local prev_selected_index=$selected_index
   
   # Initialize the terminal
   tput civis  # Hide cursor
   
+  # Initial screen draw
+  initialize_screen "$current_path"
+  
+  # Draw all menu items
+  for i in "${!items[@]}"; do
+    draw_menu_item "$i" "$selected_index" items[@] descriptions[@] is_nested[@] expanded[@]
+  done
+  
+  ## Draw any initially expanded items
+  #for i in "${expanded[@]}"; do
+  #  local count=$(draw_expanded_item "$i" "$current_path" items[@])
+  #  expanded_counts[$i]=$count
+  #done
+  
   while $running; do
-    redraw_screen "$current_path" "$selected_index" items[@] descriptions[@] is_nested[@] expanded[@]
-    
     # Get key press
     read -s -n 1 key
     
     # Special keys (arrow keys, etc.)
-    if [[ $key == $'\e' ]]; then
-      read -s -n 2 -t 0.1 rest
-      key=$key$rest
-    fi
-    
+    #if [[ $key == $'\e' ]]; then
+    #  read -s -n 2 -t 0.1 rest
+    #  key=$key$rest
+    #fi
     # Handle key press
     case "$key" in
+    # key logic...
+
+
+
+
+
+
+
       j|$'\e[B')  # Down arrow or j
-        (( selected_index < ${#items[@]} - 1 )) && ((selected_index++))
+        if (( selected_index < ${#items[@]} - 1 )); then
+          # Redraw old (selected) item as no longer selected
+           "$selected_index" "-1" items[@] descriptions[@] is_nested[@]
+          ((selected_index++))
+          # Redraw new selection
+          draw_menu_item "$selected_index" "$selected_index" items[@] descriptions[@] is_nested[@] 
+        fi
         ;;
       k|$'\e[A')  # Up arrow or k
-        (( selected_index > 0 )) && ((selected_index--))
+        if (( selected_index > 0 )); then
+          # Redraw old selection
+          draw_menu_item "$selected_index" "-1" items[@] descriptions[@] is_nested[@]
+          ((selected_index--))
+          # Redraw new selection
+          draw_menu_item "$selected_index" "$selected_index" items[@] descriptions[@] is_nested[@] 
+        fi
         ;;
-      h|$'\e[D')  # Left arrow or h (back)
-
+      h)  # Left arrow or h (back)
         if [ -n "$current_path" ]; then # if current path is not empty
           echo "OLD CURRENT_PATH: $current_path" >> "current_path.txt"
           if [ "$current_path" == "$parent_path" ]; then # at the top level of commands for the topic
+            #selected_index_history+=("$selected_index")
             display_menu "" "${selected_index_history[-1]}"
             unset 'selected_index_history[-1]' # pops the last index
+            return
           else
             current_path=$(strip_commands_suffix "$parent_path")
-            populate_menu
+            #selected_index_history+=("$selected_index")
             selected_index="${selected_index_history[-1]}"
             unset 'selected_index_history[-1]' # pops the last index
+            
+            # Need to repopulate and redraw everything since we're at a new level
+            populate_menu
+            initialize_screen "$current_path"
             expanded=()
+            expanded_counts=()
+            
+            # Draw all menu items
+            for i in "${!items[@]}"; do
+              draw_menu_item "$i" "$selected_index" items[@] descriptions[@] is_nested[@]
+            done
+            
             echo "NEW CURRENT_PATH: $current_path" >> "current_path.txt"
             echo "PARENT_PATH: $current_path" >> "parent_path.txt"
           fi
@@ -603,99 +846,133 @@ display_menu() {
       l|$'\e[C')  # Right arrow or l (forward)
         echo "$selected_index" >> "selected_index.txt"
         if [ "${is_nested[$selected_index]}" == "true" ]; then # has subcommands
-        # -z in square brackets is a test for empty string
+          # -z in square brackets is a test for empty string
           if [ -z "$current_path" ]; then # at top level (haven't even selected a topic yet)
             current_path="${items[$selected_index]}"
           else
             current_path="$current_path.commands.${items[$selected_index]}"
           fi
           path_history+=("$current_path")
-          populate_menu
           selected_index_history+=("$selected_index")
           selected_index=0
+          
+          # Need to repopulate and redraw everything since we're at a new level
+          populate_menu
+          initialize_screen "$current_path"
           expanded=()
+          expanded_counts=()
+          
+          # Draw all menu items
+          for i in "${!items[@]}"; do
+            draw_menu_item "$i" "$selected_index" items[@] descriptions[@] is_nested[@] expanded[@]
+          done
         fi
         ;;
-      " ")  # Space (expand/collapse)
-        if [ "${is_nested[$selected_index]}" == "true" ]; then
-            found=false
-
-            for item in "${expanded[@]}"; do
-              if [[ "$item" == "$selected_index" ]]; then
-                found=true
-                break
-              fi
-            done
-
-            if $found; then
-              # Remove $selected_index from array
-              new_expanded=()
-              for item in "${expanded[@]}"; do
-                if [[ "$item" != "$selected_index" ]]; then
-                  new_expanded+=("$item")
-                fi
-              done
-              expanded=("${new_expanded[@]}")
-            else
-              # Add to expanded
-              expanded+=("$selected_index")
-            fi
-        fi
-        ;;
-      q)  # Quit
-        #if [ -n "$current_path" ]; then
-        #  current_path="$parent_path"
-        #  populate_menu
-        #  selected_index=0
-        #  expanded=()
-        #else
+      # draw expanded   
+      #g)
+      #  if [ "${is_nested[$selected_index]}" == "true" ]; then # if the topic/command has nesting
+      #    if in_array "$selected_index" "${expanded[@]}"; then # already expanded, remove expansion
+      #      local num_children=${expanded_counts[$selected_index]}
+      #      clear_expanded_area $((MENU_START_LINE + selected_index + 1)) $num_children
+#
+      #      # Remove from expanded arrays
+      #      new_expanded=()
+      #      for item in "${expanded[@]}"; do
+      #        if [[ "$item" != "$selected_index" ]]; then
+      #          new_expanded+=("$item")
+      #        fi
+      #      done
+      #      expanded=("${new_expanded[@]}")
+      #      unset expanded_counts[$selected_index]
+#
+      #      # Redraw items that were below this one
+      #      # They need to move up by $num_children lines
+      #      for ((i=selected_index+1; i<${#items[@]}; i++)); do
+      #        draw_menu_item "$i" "$selected_index" items[@] descriptions[@] is_nested[@] expanded[@]
+      #      done
+      #    else
+      #      expanded+=("$selected_index")
+      #      local count
+      #      count=$(draw_expanded_item "$selected_index" "$current_path" items[@] 2>/dev/null)
+      #      # Make sure count is numeric
+      #      echo "$count" >> count.txt
+      #      if ! [[ "$count" =~ ^[0-9]+$ ]]; then
+      #        count=2
+      #        echo "Warning: Invalid count value, defaulting to 0" >> invalid_count.txt
+#
+      #      fi
+      #      expanded_counts[$selected_index]=$count
+#
+      #      # Redraw items that were below this one
+      #      # They need to move down by $count lines
+      #      for ((i=selected_index+1; i<${#items[@]}; i++)); do
+      #        draw_menu_item "$i" "$selected_index" items[@] descriptions[@] is_nested[@] expanded[@] "$count"
+      #      done
+      #    fi
+#
+      #    # Redraw the selected item to update the expand/collapse indicator
+      #    draw_menu_item "$selected_index" "$selected_index" items[@] descriptions[@] is_nested[@] expanded[@]
+      #  fi
+      #  ;;
+      q)
         running=false
         exit 0
-        #fi
         ;;
-      $'\n')  # Enter (show details)
-        if [ -n "${items[$selected_index]}" ]; then
-          local detail_path="$current_path.commands.${items[$selected_index]}"
-          if [ -z "$current_path" ]; then
-            detail_path="${items[$selected_index]}"
-          fi
-          
-          clear
-          echo -e "${BOLD}${CYAN}${items[$selected_index]}${RESET}\n"
-          
-          # If it's a nested command
-          if [ "${is_nested[$selected_index]}" == "true" ]; then
-            local desc=$(jq -r ".$detail_path.description" "$DATA_FILE")
-            echo -e "${desc}\n"
-            echo -e "${BOLD}Commands:${RESET}"
-            jq -r ".$detail_path.commands | keys[]" "$DATA_FILE" | while read -r cmd; do
-              local cmd_value=$(jq -r ".$detail_path.commands.\"$cmd\"" "$DATA_FILE")
-              
-              # Check if this is a nested command
-              if jq -e ".$detail_path.commands.\"$cmd\".description" "$DATA_FILE" > /dev/null 2>&1; then
-                local nested_desc=$(jq -r ".$detail_path.commands.\"$cmd\".description" "$DATA_FILE")
-                echo -e "  ${YELLOW}$cmd${RESET} - ${nested_desc} ${CYAN}[nested]${RESET}"
-              else
-                echo -e "  ${YELLOW}$cmd${RESET} - ${cmd_value}"
-              fi
-            done
-          else
-            local value=$(jq -r ".$detail_path" "$DATA_FILE")
-            echo -e "$value"
-          fi
-          
-          # Show cursor for input
-          tput cnorm
-          
-          echo -e "\nPress any key to go back..."
-          read -n 1 -s
-          
-          # Hide cursor again
-          tput civis
-          
-          populate_menu  # Refresh menu after viewing details
-        fi
-        ;;
+      #g)  # Enter (show details)
+      #  if [ -n "${items[$selected_index]}" ]; then
+      #    local detail_path="$current_path.commands.${items[$selected_index]}"
+      #    if [ -z "$current_path" ]; then
+      #      detail_path="${items[$selected_index]}"
+      #    fi
+      #    
+      #    clear
+      #    echo -e "${BOLD}${CYAN}${items[$selected_index]}${RESET}\n"
+      #    
+      #    # If it's a nested command
+      #    if [ "${is_nested[$selected_index]}" == "true" ]; then
+      #      local desc=$(jq -r ".$detail_path.description" "$DATA_FILE")
+      #      echo -e "${desc}\n"
+      #      echo -e "${BOLD}Commands:${RESET}"
+      #      jq -r ".$detail_path.commands | keys[]" "$DATA_FILE" | while read -r cmd; do
+      #        local cmd_value=$(jq -r ".$detail_path.commands.\"$cmd\"" "$DATA_FILE")
+      #        
+      #        # Check if this is a nested command
+      #        if jq -e ".$detail_path.commands.\"$cmd\".description" "$DATA_FILE" > /dev/null 2>&1; then
+      #          local nested_desc=$(jq -r ".$detail_path.commands.\"$cmd\".description" "$DATA_FILE")
+      #          echo -e "  ${YELLOW}$cmd${RESET} - ${nested_desc} ${CYAN}[nested]${RESET}"
+      #        else
+      #          echo -e "  ${YELLOW}$cmd${RESET} - ${cmd_value}"
+      #        fi
+      #      done
+      #    else
+      #      local value=$(jq -r ".$detail_path" "$DATA_FILE")
+      #      echo -e "$value"
+      #    fi
+      #    
+      #    # Show cursor for input
+      #    tput cnorm
+      #    
+      #    echo -e "\nPress any key to go back..."
+      #    read -n 1 -s
+      #    
+      #    # Hide cursor again
+      #    tput civis
+      #    
+      #    # Need to redraw the whole screen after details view
+      #    initialize_screen "$current_path"
+      #    
+      #    # Draw all menu items
+      #    for i in "${!items[@]}"; do
+      #      draw_menu_item "$i" "$selected_index" items[@] descriptions[@] is_nested[@] expanded[@]
+      #    done
+      #    
+      #    # Redraw any expanded items
+      #    for i in "${expanded[@]}"; do
+      #      local count=$(draw_expanded_item "$i" "$current_path" items[@])
+      #      expanded_counts[$i]=$count
+      #    done
+      #  fi
+      #  ;;
       $'\x0e')  # Ctrl+n (new)
         local new_path=""
         if [ -z "$current_path" ]; then
@@ -703,7 +980,17 @@ display_menu() {
         else
           create_command "$current_path.commands" "${is_nested[$selected_index]}"
         fi
-        populate_menu  # Refresh menu after creating
+        
+        # Repopulate and redraw since we added a new item
+        populate_menu
+        initialize_screen "$current_path"
+        expanded=()
+        expanded_counts=()
+        
+        # Draw all menu items
+        for i in "${!items[@]}"; do
+          draw_menu_item "$i" "$selected_index" items[@] descriptions[@] is_nested[@] expanded[@]
+        done
         ;;
       $'\x04')  # Ctrl+d (delete)
         if [ -n "${items[$selected_index]}" ]; then
@@ -714,13 +1001,24 @@ display_menu() {
             delete_path="$current_path.commands.${items[$selected_index]}"
           fi
           delete_command "$delete_path"
-          populate_menu  # Refresh menu after deleting
+          
+          # Repopulate and redraw since we deleted an item
+          populate_menu
           if [ $selected_index -ge ${#items[@]} ]; then
             ((selected_index = ${#items[@]} - 1))
           fi
           if [ $selected_index -lt 0 ]; then
             selected_index=0
           fi
+          
+          initialize_screen "$current_path"
+          expanded=()
+          expanded_counts=()
+          
+          # Draw all menu items
+          for i in "${!items[@]}"; do
+            draw_menu_item "$i" "$selected_index" items[@] descriptions[@] is_nested[@] expanded[@]
+          done
         fi
         ;;
       $'\x15')  # Ctrl+u (update)
@@ -732,7 +1030,18 @@ display_menu() {
             update_path="$current_path.commands.${items[$selected_index]}"
           fi
           update_command "$update_path"
-          populate_menu  # Refresh menu after updating
+          
+          # Repopulate and redraw since we updated an item
+          populate_menu
+          
+          initialize_screen "$current_path"
+          expanded=()
+          expanded_counts=()
+          
+          # Draw all menu items
+          for i in "${!items[@]}"; do
+            draw_menu_item "$i" "$selected_index" items[@] descriptions[@] is_nested[@] expanded[@]
+          done
         fi
         ;;
     esac
@@ -741,7 +1050,6 @@ display_menu() {
 
 # Main function
 main() {
-
   check_dependencies
   init_config
   
